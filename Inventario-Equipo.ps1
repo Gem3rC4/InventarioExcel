@@ -430,6 +430,7 @@ try {
     Write-Host "Equipo registrado en SharePoint: $hostname"
 }
 catch {
+    $httpBody = Get-HttpErrorBody -ErrorRecord $_
     $exception = $_.Exception
     $causas = @()
     for ($i = 0; $null -ne $exception -and $i -lt 4; $i++) {
@@ -437,6 +438,18 @@ catch {
         $exception = $exception.InnerException
     }
     $detalle = $causas -join ' | Causa interna: '
+    if ($httpBody) {
+        try {
+            $serviceError = $httpBody | ConvertFrom-Json -ErrorAction Stop
+            if ($serviceError.error -is [string]) {
+                $detalle += " | Servicio: $($serviceError.error): $($serviceError.error_description)"
+            }
+            elseif ($serviceError.error) {
+                $detalle += " | Graph: $($serviceError.error.code): $($serviceError.error.message)"
+            }
+        }
+        catch { }
+    }
     $aviso = if ($etapa -eq 'agregar la fila al libro') {
         'Compruebe si la fila ya aparece en Excel antes de repetir el envío.'
     }

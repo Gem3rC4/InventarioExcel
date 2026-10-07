@@ -5,7 +5,8 @@
 .DESCRIPTION
     Se ejecuta en cada computadora. Pide el área al técnico mediante Read-Host
     y añade una fila a la tabla del libro de inventario en SharePoint mediante
-    Microsoft Graph. También guarda un CSV local independiente por escaneo.
+    llamadas HTTP a Microsoft Graph. También guarda un CSV local independiente
+    por escaneo. La autenticación usa el código de dispositivo de Microsoft.
 .PARAMETER DirectorioSalida
     Directorio local o ruta UNC para los respaldos CSV.
 .PARAMETER NombreTabla
@@ -63,7 +64,7 @@ function Get-GraphCollection {
     param([Parameter(Mandatory = $true)][string]$Uri)
     $items = @()
     do {
-        $response = Invoke-MgGraphRequest -Method GET -Uri $Uri -ErrorAction Stop
+        $response = Invoke-GraphRequest -Method GET -Uri $Uri
         if ($response -is [System.Collections.IDictionary]) {
             $items += @($response['value'])
             $Uri = [string]$response['@odata.nextLink']
@@ -75,6 +76,87 @@ function Get-GraphCollection {
         }
     } while ($Uri)
     return $items | Where-Object { $null -ne $_ }
+}
+
+function Get-HttpErrorBody {
+    param([Parameter(Mandatory = $true)][System.Management.Automation.ErrorRecord]$ErrorRecord)
+    if (-not $ErrorRecord.Exception.PSObject.Properties['Response']) { return $null }
+    $response = $ErrorRecord.Exception.Response
+    if ($null -eq $response) { return $null }
+    try { $stream = $response.GetResponseStream() }
+    catch { return $null }
+    if ($null -eq $stream) { return $null }
+    $reader = New-Object System.IO.StreamReader($stream)
+    try { return $reader.ReadToEnd() }
+    finally { $reader.Dispose() }
+}
+
+function Get-GraphAccessToken {
+    $script:etapa = 'solicitar el código de inicio de sesión a Microsoft'
+    $authority = "https://login.microsoftonline.com/$tenantId/oauth2/v2.0"
+    $device = Invoke-RestMethod -Method POST -Uri "$authority/devicecode" -Body @{
+        client_id = $clientId
+        scope = 'https://graph.microsoft.com/Files.ReadWrite'
+    } -ContentType 'application/x-www-form-urlencoded' -ErrorAction Stop
+
+    if (-not $device.device_code -or -not $device.user_code -or -not $device.verification_uri) {
+        throw 'Microsoft no devolvió un código de dispositivo válido.'
+    }
+    Write-Host "Abra $($device.verification_uri) e introduzca el código $($device.user_code)."
+    Write-Host 'Use la cuenta que puede editar el archivo de inventario.'
+
+    $interval = [math]::Max(5, [int]$device.interval)
+    $deadline = (Get-Date).AddSeconds([int]$device.expires_in)
+    $script:etapa = 'esperar la autorización de Microsoft'
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds $interval
+        try {
+            $token = Invoke-RestMethod -Method POST -Uri "$authority/token" -Body @{
+                grant_type = 'urn:ietf:params:oauth:grant-type:device_code'
+                client_id = $clientId
+                device_code = $device.device_code
+            } -ContentType 'application/x-www-form-urlencoded' -ErrorAction Stop
+            if (-not $token.access_token) { throw 'Microsoft no devolvió un token de acceso.' }
+            return [string]$token.access_token
+        }
+        catch {
+            $errorBody = Get-HttpErrorBody -ErrorRecord $_
+            $oauthError = $null
+            if ($errorBody) {
+                try { $oauthError = $errorBody | ConvertFrom-Json -ErrorAction Stop }
+                catch { throw "Respuesta de autenticación inesperada: $errorBody" }
+            }
+            if ($oauthError -and $oauthError.error -eq 'authorization_pending') { continue }
+            if ($oauthError -and $oauthError.error -eq 'slow_down') {
+                $interval += 5
+                continue
+            }
+            if ($oauthError -and $oauthError.error) {
+                throw "Microsoft rechazó la autorización: $($oauthError.error): $($oauthError.error_description)"
+            }
+            throw
+        }
+    }
+    throw 'El código de inicio de sesión expiró antes de completar la autorización.'
+}
+
+function Invoke-GraphRequest {
+    param(
+        [Parameter(Mandatory = $true)][string]$Method,
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [string]$Body
+    )
+    $parameters = @{
+        Method = $Method
+        Uri = $Uri
+        Headers = @{ Authorization = "Bearer $script:graphAccessToken" }
+        ErrorAction = 'Stop'
+    }
+    if ($PSBoundParameters.ContainsKey('Body')) {
+        $parameters.Body = $Body
+        $parameters.ContentType = 'application/json; charset=utf-8'
+    }
+    return Invoke-RestMethod @parameters
 }
 
 function Get-ColumnMapping {
@@ -131,10 +213,6 @@ function Get-ColumnMapping {
         Duplicates = $duplicates
         IsComplete = ($missing.Count -eq 0 -and $unknown.Count -eq 0 -and $duplicates.Count -eq 0 -and $fields.Count -eq $Columns.Count)
     }
-}
-
-if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
-    throw 'Falta el módulo Microsoft.Graph.Authentication. Instálelo una vez con: Install-Module Microsoft.Graph.Authentication -Scope CurrentUser'
 }
 
 # El área nunca se deduce ni se toma de un parámetro: siempre la escribe el técnico.
@@ -295,23 +373,16 @@ $csvPath = Join-Path $DirectorioSalida $fileName
 $record | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
 Write-Host "Respaldo CSV guardado en: $csvPath"
 
-$etapa = 'cargar Microsoft.Graph.Authentication'
-$versionModulo = 'desconocida'
+$clientId = '14d82eec-204b-4c2f-b7e8-296a70dab67e'
+$etapa = 'autenticar con Microsoft'
 try {
-    Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
-    $moduloGraph = Get-Module -Name Microsoft.Graph.Authentication
-    if ($moduloGraph -and $moduloGraph.PSObject.Properties['Version']) {
-        $versionModulo = [string]$moduloGraph.Version
-    }
-
-    $etapa = 'autenticar con Microsoft Graph'
-    Connect-MgGraph -TenantId $tenantId -Scopes 'Files.ReadWrite' -UseDeviceAuthentication -ContextScope Process -ErrorAction Stop | Out-Null
+    $script:graphAccessToken = Get-GraphAccessToken
 
     # El enlace compartido se transforma en el identificador que acepta Graph.
     $etapa = 'resolver el enlace del libro de SharePoint'
     $shareBytes = [System.Text.Encoding]::UTF8.GetBytes($urlLibro)
     $shareToken = 'u!' + [Convert]::ToBase64String($shareBytes).TrimEnd('=').Replace('/', '_').Replace('+', '-')
-    $item = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/shares/$shareToken/driveItem" -ErrorAction Stop
+    $item = Invoke-GraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/shares/$shareToken/driveItem"
     if (-not $item.id -or -not $item.parentReference.driveId) {
         throw 'Graph no devolvió el identificador del libro compartido.'
     }
@@ -352,7 +423,7 @@ try {
     }
     $body = @{ values = @(,$rowValues) } | ConvertTo-Json -Depth 4 -Compress
     $etapa = 'agregar la fila al libro'
-    $added = Invoke-MgGraphRequest -Method POST -Uri "$tableUri/rows" -Body $body -ContentType 'application/json; charset=utf-8' -ErrorAction Stop
+    $added = Invoke-GraphRequest -Method POST -Uri "$tableUri/rows/add" -Body $body
     if (-not $added) {
         throw 'Graph no confirmó la creación de la fila. Revise la tabla antes de reintentar para evitar duplicados.'
     }
@@ -370,7 +441,7 @@ catch {
         'Compruebe si la fila ya aparece en Excel antes de repetir el envío.'
     }
     else { '' }
-    throw "No se pudo registrar el equipo en SharePoint durante la etapa '$etapa' (Microsoft.Graph.Authentication $versionModulo). $detalle $aviso Respaldo disponible en: $csvPath"
+    throw "No se pudo registrar el equipo en SharePoint durante la etapa '$etapa'. $detalle $aviso Respaldo disponible en: $csvPath"
 }
 
 $record

@@ -4,53 +4,27 @@
 
 ## Ejecutar sin copiar el archivo manualmente
 
-Pega este bloque en **Windows PowerShell 5.1** de cada equipo. Descarga la versión actual de `main` a un archivo temporal, la ejecuta y borra ese archivo al terminar. La instalación del módulo solo se hace si falta.
+Pega este comando en **Windows PowerShell 5.1** de cada equipo. Descarga y ejecuta la versión actual de `main` sin copiar el archivo manualmente:
 
 ```powershell
-$ErrorActionPreference = 'Stop'
-if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
-    Install-Module Microsoft.Graph.Authentication -Scope CurrentUser -Repository PSGallery
-}
-$scriptTemporal = Join-Path $env:TEMP ("Inventario-Equipo-{0}.ps1" -f [guid]::NewGuid().ToString('N'))
-try {
-    Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/Gem3rC4/InventarioExcel/main/Inventario-Equipo.ps1' -OutFile $scriptTemporal
-    & $scriptTemporal
-}
-finally {
-    if (Test-Path -LiteralPath $scriptTemporal) {
-        Remove-Item -LiteralPath $scriptTemporal -Force
-    }
-}
+iex (irm 'https://raw.githubusercontent.com/Gem3rC4/InventarioExcel/main/Inventario-Equipo.ps1')
 ```
 
-El técnico debe escribir el área y completar el inicio de sesión de Microsoft Graph con una cuenta que pueda editar el libro. La autorización de Graph requiere el permiso delegado `Files.ReadWrite`; la organización puede exigir consentimiento del administrador. La sesión de Graph se limita al proceso actual.
+El técnico debe escribir el Área y completar el inicio de sesión de Microsoft con una cuenta que pueda editar el libro. El script usa llamadas HTTP directas a Microsoft Graph y **no necesita instalar `Microsoft.Graph.Authentication`**. Microsoft puede pedir consentimiento para el permiso delegado `Files.ReadWrite`; la organización puede exigir aprobación del administrador. El token solo se mantiene en memoria durante esta ejecución.
 
-## Si falla antes de mostrar el código de inicio de sesión
+## Relación con el script anterior de Google Sheets
 
-El script indica la etapa y la versión de `Microsoft.Graph.Authentication` que falló; el CSV queda guardado. En el equipo afectado, comprueba la versión instalada:
+El script anterior enviaba JSON a un **Google Apps Script** mediante `Invoke-RestMethod -Method Post`. Ese Apps Script escribía en Google Sheets. El enlace público de un libro de Excel en SharePoint no es un endpoint de escritura equivalente: Microsoft exige una identidad autorizada. Aquí PowerShell obtiene un token mediante el flujo de código de dispositivo y hace el `POST` a Microsoft Graph. Así se evita el fallo de `Connect-MgGraph` observado con el módulo 2.41.1.
 
-```powershell
-Get-Module -ListAvailable Microsoft.Graph.Authentication | Select-Object Name, Version
-```
+Para eliminar también el inicio de sesión en cada computadora se necesitaría un servicio intermediario, por ejemplo un flujo de Power Automate con el disparador HTTP y la acción **Excel Online (Business) → Add a row into a table**. El disparador HTTP requiere licencia Premium. Su URL o clave de acceso no se debe publicar en este repositorio público.
 
-Para actualizar el módulo desde PowerShell Gallery, ejecuta lo siguiente y luego abre una consola nueva de Windows PowerShell:
+## Si falla un envío
 
-```powershell
-Install-Module Microsoft.Graph.Authentication -Scope CurrentUser -Repository PSGallery -Force
-```
-
-Comprueba el inicio de sesión por separado antes de repetir el inventario:
-
-```powershell
-Connect-MgGraph -TenantId '0675a017-358d-4fb1-85c3-368320881e85' -Scopes 'Files.ReadWrite' -UseDeviceAuthentication -ContextScope Process -ErrorAction Stop
-```
-
-Si aparece un código, complétalo en `https://microsoft.com/devicelogin` con la cuenta que tiene acceso al libro. Si continúa el error, informa la etapa, la versión del módulo y la causa interna que muestra el script; no envíes contraseñas, códigos ni tokens. Si la falla sucede durante `agregar la fila al libro`, comprueba antes en Excel si ya existe la fila para evitar duplicados.
+El script conserva el CSV e indica la etapa. Si falla durante `agregar la fila al libro`, comprueba si ya existe la fila en Excel antes de repetir para evitar duplicados. No envíes contraseñas, códigos de inicio de sesión ni tokens al pedir soporte.
 
 ## Requisitos
 
-- Acceso HTTPS a `raw.githubusercontent.com`, `graph.microsoft.com` y SharePoint.
-- Acceso a PowerShell Gallery la primera vez que se instale `Microsoft.Graph.Authentication`.
+- Acceso HTTPS a `raw.githubusercontent.com`, `login.microsoftonline.com`, `graph.microsoft.com` y SharePoint.
 - Una política de ejecución de PowerShell que permita ejecutar el script. Si la organización exige scripts firmados, el equipo de TI debe firmar este archivo con un certificado de confianza antes de desplegarlo.
 - El libro de SharePoint debe conservar la tabla `InventarioEquipos` y sus 18 encabezados. El script comprueba los nombres antes de escribir.
 

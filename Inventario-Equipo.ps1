@@ -295,11 +295,20 @@ $csvPath = Join-Path $DirectorioSalida $fileName
 $record | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
 Write-Host "Respaldo CSV guardado en: $csvPath"
 
+$etapa = 'cargar Microsoft.Graph.Authentication'
+$versionModulo = 'desconocida'
 try {
     Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
+    $moduloGraph = Get-Module -Name Microsoft.Graph.Authentication
+    if ($moduloGraph -and $moduloGraph.PSObject.Properties['Version']) {
+        $versionModulo = [string]$moduloGraph.Version
+    }
+
+    $etapa = 'autenticar con Microsoft Graph'
     Connect-MgGraph -TenantId $tenantId -Scopes 'Files.ReadWrite' -UseDeviceAuthentication -ContextScope Process -ErrorAction Stop | Out-Null
 
     # El enlace compartido se transforma en el identificador que acepta Graph.
+    $etapa = 'resolver el enlace del libro de SharePoint'
     $shareBytes = [System.Text.Encoding]::UTF8.GetBytes($urlLibro)
     $shareToken = 'u!' + [Convert]::ToBase64String($shareBytes).TrimEnd('=').Replace('/', '_').Replace('+', '-')
     $item = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/shares/$shareToken/driveItem" -ErrorAction Stop
@@ -313,6 +322,7 @@ try {
     $driveId = [uri]::EscapeDataString([string]$item.parentReference.driveId)
     $itemId = [uri]::EscapeDataString([string]$item.id)
     $baseUri = "https://graph.microsoft.com/v1.0/drives/$driveId/items/$itemId/workbook"
+    $etapa = 'consultar las tablas del libro'
     $tables = @(Get-GraphCollection -Uri "$baseUri/tables")
     $table = @($tables | Where-Object { $_.name -eq $NombreTabla })
     if ($table.Count -ne 1) {
@@ -322,6 +332,7 @@ try {
 
     $tableId = [uri]::EscapeDataString([string]$table[0].id)
     $tableUri = "$baseUri/tables/$tableId"
+    $etapa = 'consultar las columnas de la tabla'
     $columns = @(Get-GraphCollection -Uri "$tableUri/columns")
     $mapping = Get-ColumnMapping -Columns $columns
     if (-not $mapping.IsComplete) {
@@ -340,6 +351,7 @@ try {
         }
     }
     $body = @{ values = @(,$rowValues) } | ConvertTo-Json -Depth 4 -Compress
+    $etapa = 'agregar la fila al libro'
     $added = Invoke-MgGraphRequest -Method POST -Uri "$tableUri/rows" -Body $body -ContentType 'application/json; charset=utf-8' -ErrorAction Stop
     if (-not $added) {
         throw 'Graph no confirmó la creación de la fila. Revise la tabla antes de reintentar para evitar duplicados.'
@@ -347,7 +359,18 @@ try {
     Write-Host "Equipo registrado en SharePoint: $hostname"
 }
 catch {
-    throw "No se pudo registrar el equipo en SharePoint: $($_.Exception.Message) Respaldo disponible en: $csvPath"
+    $exception = $_.Exception
+    $causas = @()
+    for ($i = 0; $null -ne $exception -and $i -lt 4; $i++) {
+        $causas += ('{0}: {1}' -f $exception.GetType().Name, $exception.Message)
+        $exception = $exception.InnerException
+    }
+    $detalle = $causas -join ' | Causa interna: '
+    $aviso = if ($etapa -eq 'agregar la fila al libro') {
+        'Compruebe si la fila ya aparece en Excel antes de repetir el envío.'
+    }
+    else { '' }
+    throw "No se pudo registrar el equipo en SharePoint durante la etapa '$etapa' (Microsoft.Graph.Authentication $versionModulo). $detalle $aviso Respaldo disponible en: $csvPath"
 }
 
 $record

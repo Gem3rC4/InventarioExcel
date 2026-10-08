@@ -6,7 +6,7 @@
 
 $DirectorioSalida = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'InventarioEquipos'
 
-# URL de la Web App de Google Apps Script (YA ESTÁ ACTUALIZADA CON LA TUYA)
+# URL de la Web App de Google Apps Script
 $webAppUrl = 'https://script.google.com/macros/s/AKfycbxDlLb51gb_sNcpstJmB8py8WHzl7qteRyTlgQUBQjwGs8JWGviJGngscUXJaM7JIIX/exec'
 
 Set-StrictMode -Version 2.0
@@ -44,7 +44,9 @@ $adapters = @(Get-CimData -ClassName 'Win32_NetworkAdapterConfiguration' -Filter
 if (-not $computer -or -not $os) { throw 'No se pudieron consultar los datos del sistema.' }
 
 $hostname = if ($computer.Name) { $computer.Name } else { $env:COMPUTERNAME }
-$userName = if ($computer.UserName) { $computer.UserName } else { 'Sin sesion interactiva' }
+
+# === CORTE DEL NOMBRE DE USUARIO ===
+$userName = if ($computer.UserName) { ($computer.UserName -split '\\')[-1] } else { 'Sin sesion interactiva' }
 
 $equipmentType = 'Desconocido'
 if ($enclosure) {
@@ -136,10 +138,10 @@ Write-Host "Respaldo CSV guardado en: $csvPath"
 Write-Host "`nEnviando datos a Google Sheets..." -ForegroundColor Cyan
 
 # Convertir el registro a JSON
-$jsonPayload = $record | ConvertTo-Json -Depth 3
+$jsonPayload =$record | ConvertTo-Json -Depth 3
 
 try {
-    $response = Invoke-RestMethod -Uri $webAppUrl -Method Post -Body $jsonPayload -ContentType 'application/json' -ErrorAction Stop
+    $response = Invoke-RestMethod -Uri $webAppUrl -Method Post -Body$jsonPayload -ContentType 'application/json' -ErrorAction Stop
     
     if ($response.status -eq 'success') {
         Write-Host "¡EXITO! Equipo registrado correctamente en Google Sheets." -ForegroundColor Green

@@ -138,10 +138,10 @@ Write-Host "Respaldo CSV guardado en: $csvPath"
 Write-Host "`nEnviando datos a Google Sheets..." -ForegroundColor Cyan
 
 # Convertir el registro a JSON
-$jsonPayload =$record | ConvertTo-Json -Depth 3
+$jsonPayload = $record | ConvertTo-Json -Depth 3
 
 try {
-    $response = Invoke-RestMethod -Uri $webAppUrl -Method Post -Body$jsonPayload -ContentType 'application/json' -ErrorAction Stop
+    $response = Invoke-RestMethod -Uri $webAppUrl -Method Post -Body $jsonPayload -ContentType 'application/json' -ErrorAction Stop
     
     if ($response.status -eq 'success') {
         Write-Host "¡EXITO! Equipo registrado correctamente en Google Sheets." -ForegroundColor Green

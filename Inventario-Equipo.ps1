@@ -80,7 +80,7 @@ function Get-GraphAccessToken {
     Write-Host " AUTENTICACIÓN REQUERIDA PARA GUARDAR EN EXCEL" -ForegroundColor Cyan
     Write-Host " 1. Abra su navegador en: " -NoNewline; Write-Host $($device.verification_uri) -ForegroundColor Yellow
     Write-Host " 2. Ingrese este código:  " -NoNewline; Write-Host $($device.user_code) -ForegroundColor Green
-    Write-Host " (Use la cuenta de horacio_sauce_corporacionalisa_com u otra con acceso)"
+    Write-Host " (Use la cuenta con acceso al Excel)"
     Write-Host "=================================================================`n" -ForegroundColor Cyan
 
     $interval = [math]::Max(5, [int]$device.interval)$deadline = (Get-Date).AddSeconds([int]$device.expires_in)$script:etapa = 'esperar la autorización de Microsoft'
@@ -100,8 +100,6 @@ function Get-GraphAccessToken {
             }
         }
         catch {
-            # Atrapamos los errores de forma segura. Mientras no ingreses el código, 
-            # Microsoft devuelve un "Bad Request" que ignoramos para que siga consultando.
             continue
         }
     }

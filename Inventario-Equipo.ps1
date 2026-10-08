@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 <#
 .SYNOPSIS
     Registra el inventario del equipo local en Excel Online y crea un respaldo CSV.
@@ -7,28 +7,21 @@
     y añade una fila a la tabla del libro de inventario en SharePoint mediante
     llamadas HTTP a Microsoft Graph. También guarda un CSV local independiente
     por escaneo. La autenticación usa el código de dispositivo de Microsoft.
-.PARAMETER DirectorioSalida
-    Directorio local o ruta UNC para los respaldos CSV.
-.PARAMETER NombreTabla
-    Nombre de la Tabla de Excel, si el libro contiene más de una.
-.EXAMPLE
-    .\Inventario-Equipo.ps1
 #>
-[CmdletBinding()]
-param(
-    [Parameter()]
-    [ValidateNotNullOrEmpty()]
-    [string]$DirectorioSalida = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'InventarioEquipos'),
 
-    [Parameter()]
-    [string]$NombreTabla = 'InventarioEquipos'
-)
-
-Set-StrictMode -Version 2.0
-$ErrorActionPreference = 'Stop'
+# ==============================================================================
+# VARIABLES DE CONFIGURACIÓN
+# ==============================================================================
+$DirectorioSalida = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'InventarioEquipos'
+$NombreTabla      = 'InventarioEquipos'
 
 $urlLibro = 'https://grupopinulitogt-my.sharepoint.com/:x:/r/personal/horacio_sauce_corporacionalisa_com/_layouts/15/Doc.aspx?sourcedoc=%7B7F53AF0E-F9E7-493F-97A8-15FFAFB5E5E4%7D&file=INVENTARIO%20DE%20EQUIPOS.xlsx&fromShare=true&action=default&mobileredirect=true'
 $tenantId = '0675a017-358d-4fb1-85c3-368320881e85'
+$clientId = '14d82eec-204b-4c2f-b7e8-296a70dab67e'
+# ==============================================================================
+
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = 'Stop'
 
 function Get-CimData {
     param(
@@ -175,7 +168,7 @@ function Get-ColumnMapping {
         DiscoUsado_GB   = @('DiscoUsado_GB', 'Disco usado', 'Disco usado (GB)', 'Usado')
         DiscoLibre_GB   = @('DiscoLibre_GB', 'Disco libre', 'Disco libre (GB)', 'Libre')
         TipoDisco       = @('TipoDisco', 'Tipo de disco')
-        DireccionIP     = @('DireccionIP', 'Dirección IP', 'IP')
+        DireccionIP     = @('DireccionIP', 'Dirección IP', 'IP', 'Tipo IP', 'TipoIP')
         WindowsEdicion  = @('WindowsEdicion', 'Windows', 'Edición de Windows', 'Sistema operativo')
         WindowsVersion  = @('WindowsVersion', 'Versión de Windows', 'Version Windows', 'Version')
         LicenciaWindows = @('LicenciaWindows', 'Estado de licencia de Windows', 'Licencia de Windows', 'Estado de licencia', 'Activado')
@@ -373,7 +366,6 @@ $csvPath = Join-Path $DirectorioSalida $fileName
 $record | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
 Write-Host "Respaldo CSV guardado en: $csvPath"
 
-$clientId = '14d82eec-204b-4c2f-b7e8-296a70dab67e'
 $etapa = 'autenticar con Microsoft'
 try {
     $script:graphAccessToken = Get-GraphAccessToken

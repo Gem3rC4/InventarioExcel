@@ -7,10 +7,12 @@
 # ==============================================================================
 # VARIABLES DE CONFIGURACIÓN
 # ==============================================================================
-$DirectorioSalida = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'InventarioEquipos'$NombreTabla      = 'InventarioEquipos'
+$DirectorioSalida = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'InventarioEquipos'
+$NombreTabla      = 'InventarioEquipos'
 
 $urlLibro = 'https://grupopinulitogt-my.sharepoint.com/:x:/r/personal/horacio_sauce_corporacionalisa_com/_layouts/15/Doc.aspx?sourcedoc=%7B7F53AF0E-F9E7-493F-97A8-15FFAFB5E5E4%7D&file=INVENTARIO%20DE%20EQUIPOS.xlsx&fromShare=true&action=default&mobileredirect=true'
-$tenantId = '0675a017-358d-4fb1-85c3-368320881e85'$clientId = '14d82eec-204b-4c2f-b7e8-296a70dab67e'
+$tenantId = '0675a017-358d-4fb1-85c3-368320881e85'
+$clientId = '14d82eec-204b-4c2f-b7e8-296a70dab67e'
 # ==============================================================================
 
 Set-StrictMode -Version 2.0
@@ -19,49 +21,55 @@ $ErrorActionPreference = 'Stop'
 function Get-CimData {
     param([Parameter(Mandatory = $true)][string]$ClassName, [string]$Filter)
     try {
-        $parameters = @{ ClassName =$ClassName; ErrorAction = 'Stop' }
-        if ($Filter) { $parameters.Filter =$Filter }
+        $parameters = @{ ClassName = $ClassName; ErrorAction = 'Stop' }
+        if ($Filter) { $parameters.Filter = $Filter }
         return Get-CimInstance @parameters
     } catch { return $null }
 }
 
 function ConvertTo-Gigabytes {
     param([object]$Bytes)
-    if ($null -eq $Bytes) { return$null }
+    if ($null -eq $Bytes) { return $null }
     return [math]::Round(([double]$Bytes / 1GB), 2)
 }
 
 function Normalize-Header {
     param([Parameter(Mandatory = $true)][string]$Text)
-    $decomposed =$Text.Normalize([System.Text.NormalizationForm]::FormD)
+    $decomposed = $Text.Normalize([System.Text.NormalizationForm]::FormD)
     $plain = [regex]::Replace($decomposed, '\p{Mn}', '')
     return [regex]::Replace($plain.ToLowerInvariant(), '[^a-z0-9]', '')
 }
 
 function Get-GraphCollection {
-    param([Parameter(Mandatory = $true)][string]$Uri)$items = @()
+    param([Parameter(Mandatory = $true)][string]$Uri)
+    $items = @()
     do {
-        $response = Invoke-GraphRequest -Method GET -Uri$Uri
+        $response = Invoke-GraphRequest -Method GET -Uri $Uri
         if ($response -is [System.Collections.IDictionary]) {
             $items += @($response['value'])
             $Uri = [string]$response['@odata.nextLink']
         }
         else {
-            $items += @($response.value)$nextLink = $response.PSObject.Properties['@odata.nextLink']$Uri = if ($nextLink) { [string]$nextLink.Value } else { '' }
+            $items += @($response.value)
+            $nextLink = $response.PSObject.Properties['@odata.nextLink']
+            $Uri = if ($nextLink) { [string]$nextLink.Value } else { '' }
         }
     } while ($Uri)
-    return $items | Where-Object { $null -ne$_ }
+    return $items | Where-Object { $null -ne $_ }
 }
 
 function Get-HttpErrorBody {
     param([Parameter(Mandatory = $true)][System.Management.Automation.ErrorRecord]$ErrorRecord)
     try {
-        if (-not $ErrorRecord.Exception.PSObject.Properties['Response']) { return$null }
-        $response =$ErrorRecord.Exception.Response
-        if ($null -eq $response) { return$null }
-        $stream =$response.GetResponseStream()
-        if ($null -eq$stream -or -not $stream.CanRead) { return$null }
-        if ($stream.CanSeek) { $stream.Position = 0 }$reader = New-Object System.IO.StreamReader($stream)$body = $reader.ReadToEnd()$reader.Dispose()
+        if (-not $ErrorRecord.Exception.PSObject.Properties['Response']) { return $null }
+        $response = $ErrorRecord.Exception.Response
+        if ($null -eq $response) { return $null }
+        $stream = $response.GetResponseStream()
+        if ($null -eq $stream -or -not $stream.CanRead) { return $null }
+        if ($stream.CanSeek) { $stream.Position = 0 }
+        $reader = New-Object System.IO.StreamReader($stream)
+        $body = $reader.ReadToEnd()
+        $reader.Dispose()
         return $body
     } catch {
         return $null
@@ -83,7 +91,9 @@ function Get-GraphAccessToken {
     Write-Host " (Use la cuenta de horacio_sauce_corporacionalisa_com u otra con acceso)"
     Write-Host "=================================================================`n" -ForegroundColor Cyan
 
-    $interval = [math]::Max(5, [int]$device.interval)$deadline = (Get-Date).AddSeconds([int]$device.expires_in)$script:etapa = 'esperar la autorización de Microsoft'
+    $interval = [math]::Max(5, [int]$device.interval)
+    $deadline = (Get-Date).AddSeconds([int]$device.expires_in)
+    $script:etapa = 'esperar la autorización de Microsoft'
     
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds $interval
@@ -118,13 +128,16 @@ function Invoke-GraphRequest {
         Headers = @{ Authorization = "Bearer $script:graphAccessToken" }
         ErrorAction = 'Stop'
     }
-    if ($PSBoundParameters.ContainsKey('Body')) {$parameters.Body = $Body$parameters.ContentType = 'application/json; charset=utf-8'
+    if ($PSBoundParameters.ContainsKey('Body')) {
+        $parameters.Body = $Body
+        $parameters.ContentType = 'application/json; charset=utf-8'
     }
     return Invoke-RestMethod @parameters
 }
 
 function Get-ColumnMapping {
-    param([Parameter(Mandatory = $true)][object[]]$Columns)$aliases = @{
+    param([Parameter(Mandatory = $true)][object[]]$Columns)
+    $aliases = @{
         Hostname        = @('Hostname', 'Nombre de equipo', 'Nombre del equipo', 'Equipo')
         UsuarioLogueado = @('UsuarioLogueado', 'Usuario logueado', 'Usuario conectado', 'Usuario')
         Marca           = @('Marca', 'Fabricante')
@@ -145,16 +158,17 @@ function Get-ColumnMapping {
         Area            = @('Area', 'Área', 'Departamento', 'Division')
     }
     $lookup = @{}
-    foreach ($field in$aliases.Keys) {
+    foreach ($field in $aliases.Keys) {
         foreach ($alias in $aliases[$field]) {
-            $key = Normalize-Header$alias
-            if ($lookup.ContainsKey($key) -and$lookup[$key] -ne$field) { throw "Alias de columna ambiguo: $alias" }
-            $lookup[$key] =$field
+            $key = Normalize-Header $alias
+            if ($lookup.ContainsKey($key) -and $lookup[$key] -ne $field) { throw "Alias de columna ambiguo: $alias" }
+            $lookup[$key] = $field
         }
     }
-    $ordered = @($Columns \vert{} Sort-Object { [int]$_.index })
-    $fields = @()$unknown = @()
-    foreach ($column in$ordered) {
+    $ordered = @($Columns | Sort-Object { [int]$_.index })
+    $fields = @()
+    $unknown = @()
+    foreach ($column in $ordered) {
         $key = Normalize-Header ([string]$column.name)
         if (-not $lookup.ContainsKey($key)) {
             $unknown += [string]$column.name
@@ -162,78 +176,92 @@ function Get-ColumnMapping {
         }
         $fields += $lookup[$key]
     }
-    $missing = @($aliases.Keys | Where-Object { $_ -notin$fields } | Sort-Object)
-    $duplicates = @($fields | Group-Object | Where-Object { $_.Count -gt 1 } \vert{} ForEach-Object {$_.Name })
+    $missing = @($aliases.Keys | Where-Object { $_ -notin $fields } | Sort-Object)
+    $duplicates = @($fields | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
     return [pscustomobject]@{
         Fields     = $fields
         Missing    = $missing
         Unknown    = $unknown
         Duplicates = $duplicates
-        IsComplete = ($missing.Count -eq 0 -and $unknown.Count -eq 0 -and$duplicates.Count -eq 0 -and $fields.Count -eq$Columns.Count)
+        IsComplete = ($missing.Count -eq 0 -and $unknown.Count -eq 0 -and $duplicates.Count -eq 0 -and $fields.Count -eq $Columns.Count)
     }
 }
 
 do {
     $area = Read-Host 'Ingrese el área o departamento de este equipo (obligatorio)'
-    if ($null -eq$area) { throw 'No se recibió el área.' }
-    $area =$area.Trim()
+    if ($null -eq $area) { throw 'No se recibió el área.' }
+    $area = $area.Trim()
 } while (-not $area)
 
 $computer = Get-CimData -ClassName 'Win32_ComputerSystem'
-$bios = Get-CimData -ClassName 'Win32_BIOS'$processors = @(Get-CimData -ClassName 'Win32_Processor')
-$enclosure = Get-CimData -ClassName 'Win32_SystemEnclosure'$os = Get-CimData -ClassName 'Win32_OperatingSystem'
-$volumes = @(Get-CimData -ClassName 'Win32_LogicalDisk' -Filter 'DriveType = 3' \vert{} Where-Object {$null -ne $_ -and$null -ne $_.Size })$adapters = @(Get-CimData -ClassName 'Win32_NetworkAdapterConfiguration' -Filter 'IPEnabled = TRUE')
+$bios = Get-CimData -ClassName 'Win32_BIOS'
+$processors = @(Get-CimData -ClassName 'Win32_Processor')
+$enclosure = Get-CimData -ClassName 'Win32_SystemEnclosure'
+$os = Get-CimData -ClassName 'Win32_OperatingSystem'
+$volumes = @(Get-CimData -ClassName 'Win32_LogicalDisk' -Filter 'DriveType = 3' | Where-Object { $null -ne $_ -and $null -ne $_.Size })
+$adapters = @(Get-CimData -ClassName 'Win32_NetworkAdapterConfiguration' -Filter 'IPEnabled = TRUE')
 
-if (-not $computer -or -not$os) { throw 'No se pudieron consultar los datos del sistema.' }
+if (-not $computer -or -not $os) { throw 'No se pudieron consultar los datos del sistema.' }
 
-$hostname = if ($computer.Name) {$computer.Name } else { $env:COMPUTERNAME }$userName = if ($computer.UserName) {$computer.UserName } else { 'Sin sesión interactiva' }
+$hostname = if ($computer.Name) { $computer.Name } else { $env:COMPUTERNAME }
+$userName = if ($computer.UserName) { $computer.UserName } else { 'Sin sesión interactiva' }
 
 $equipmentType = 'Desconocido'
-if ($enclosure) {$chassisTypes = @($enclosure \vert{} ForEach-Object {$_.ChassisTypes })
+if ($enclosure) {
+    $chassisTypes = @($enclosure | ForEach-Object { $_.ChassisTypes })
     if (@($chassisTypes | Where-Object { $_ -in @(8, 9, 10, 11, 12, 14, 18, 21, 30, 31, 32) }).Count -gt 0) { $equipmentType = 'Laptop' }
     elseif (@($chassisTypes | Where-Object { $_ -in @(3, 4, 5, 6, 7, 15, 16, 35, 36) }).Count -gt 0) { $equipmentType = 'Desktop' }
 }
 
-$ramGB = if ($computer.TotalPhysicalMemory) { ConvertTo-Gigabytes $computer.TotalPhysicalMemory } else {$null }
+$ramGB = if ($computer.TotalPhysicalMemory) { ConvertTo-Gigabytes $computer.TotalPhysicalMemory } else { $null }
 
 $diskTotal = [double]0; $diskFree = [double]0
-foreach ($volume in$volumes) {
+foreach ($volume in $volumes) {
     $diskTotal += [double]$volume.Size
-    if ($null -ne$volume.FreeSpace) { $diskFree += [double]$volume.FreeSpace }
+    if ($null -ne $volume.FreeSpace) { $diskFree += [double]$volume.FreeSpace }
 }
-$diskTotalGB =$null; $diskUsedGB =$null; $diskFreeGB =$null
-if ($volumes.Count -gt 0) {$diskTotalGB = ConvertTo-Gigabytes $diskTotal$diskUsedGB = ConvertTo-Gigabytes ($diskTotal -$diskFree)
-    $diskFreeGB = ConvertTo-Gigabytes$diskFree
+$diskTotalGB = $null; $diskUsedGB = $null; $diskFreeGB = $null
+if ($volumes.Count -gt 0) {
+    $diskTotalGB = ConvertTo-Gigabytes $diskTotal
+    $diskUsedGB = ConvertTo-Gigabytes ($diskTotal - $diskFree)
+    $diskFreeGB = ConvertTo-Gigabytes $diskFree
 }
 
 $diskType = 'Desconocido'
 if (Get-Command -Name Get-PhysicalDisk -ErrorAction SilentlyContinue) {
     try {
-        $physicalDisks = @(Get-PhysicalDisk -ErrorAction Stop \vert{} Where-Object { [string]$_.BusType -notin @('USB', 'SD', 'MMC') })
-        $types = @($physicalDisks | ForEach-Object { [string]$_.MediaType } \vert{} Where-Object {$_ -in @('SSD', 'HDD') } | Sort-Object -Unique)
-        if ($types.Count -gt 0) { $diskType =$types -join '; ' }
+        $physicalDisks = @(Get-PhysicalDisk -ErrorAction Stop | Where-Object { [string]$_.BusType -notin @('USB', 'SD', 'MMC') })
+        $types = @($physicalDisks | ForEach-Object { [string]$_.MediaType } | Where-Object { $_ -in @('SSD', 'HDD') } | Sort-Object -Unique)
+        if ($types.Count -gt 0) { $diskType = $types -join '; ' }
     } catch {}
 }
 
-$ipAddresses = @($adapters \vert{} Where-Object {$null -ne $_ } \vert{} ForEach-Object {$_.IPAddress } | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' -and $_ -notmatch '^(127\.\vert{}169\.254\.)' } \vert{} Sort-Object -Unique)$ip = if ($ipAddresses.Count -gt 0) {$ipAddresses -join '; ' } else { 'Desconocido' }
+$ipAddresses = @($adapters | Where-Object { $null -ne $_ } | ForEach-Object { $_.IPAddress } | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' -and $_ -notmatch '^(127\.|169\.254\.)' } | Sort-Object -Unique)
+$ip = if ($ipAddresses.Count -gt 0) { $ipAddresses -join '; ' } else { 'Desconocido' }
 
 $windowsVersion = 'Desconocido'
 try {
     $windowsInfo = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop
-    if ($windowsInfo.DisplayVersion) { $windowsVersion =$windowsInfo.DisplayVersion }
-    elseif ($windowsInfo.ReleaseId) { $windowsVersion =$windowsInfo.ReleaseId }
-} catch { if ($os.Version) { $windowsVersion =$os.Version } }
+    if ($windowsInfo.DisplayVersion) { $windowsVersion = $windowsInfo.DisplayVersion }
+    elseif ($windowsInfo.ReleaseId) { $windowsVersion = $windowsInfo.ReleaseId }
+} catch { if ($os.Version) { $windowsVersion = $os.Version } }
 
-$activation = 'Desconocido'$licenseProducts = @(Get-CimData -ClassName 'SoftwareLicensingProduct' -Filter "ApplicationID='55c92734-d682-4d71-983e-d6ec3f16059f' AND PartialProductKey IS NOT NULL" | Where-Object { $null -ne$_ })
-if ($licenseProducts.Count -gt 0) {$activation = if (@($licenseProducts \vert{} Where-Object {$_.LicenseStatus -eq 1 }).Count -gt 0) { 'Activado' } else { 'No activado' }
+$activation = 'Desconocido'
+$licenseProducts = @(Get-CimData -ClassName 'SoftwareLicensingProduct' -Filter "ApplicationID='55c92734-d682-4d71-983e-d6ec3f16059f' AND PartialProductKey IS NOT NULL" | Where-Object { $null -ne $_ })
+if ($licenseProducts.Count -gt 0) {
+    $activation = if (@($licenseProducts | Where-Object { $_.LicenseStatus -eq 1 }).Count -gt 0) { 'Activado' } else { 'No activado' }
 }
 
-$processorNames = @($processors \vert{} Where-Object {$null -ne $_ -and$_.Name } | ForEach-Object { $_.Name.Trim() } \vert{} Sort-Object -Unique)$processor = if ($processorNames.Count -gt 0) {$processorNames -join '; ' } else { 'Desconocido' }
+$processorNames = @($processors | Where-Object { $null -ne $_ -and $_.Name } | ForEach-Object { $_.Name.Trim() } | Sort-Object -Unique)
+$processor = if ($processorNames.Count -gt 0) { $processorNames -join '; ' } else { 'Desconocido' }
 
-$manufacturer = if ($computer.Manufacturer) { $computer.Manufacturer.Trim() } else { 'Desconocido' }$model = if ($computer.Model) {$computer.Model.Trim() } else { 'Desconocido' }
-$serial = if ($bios.SerialNumber) { $bios.SerialNumber.Trim() } else { 'Desconocido' }$edition = if ($os.Caption) {$os.Caption.Trim() } else { 'Desconocido' }
+$manufacturer = if ($computer.Manufacturer) { $computer.Manufacturer.Trim() } else { 'Desconocido' }
+$model = if ($computer.Model) { $computer.Model.Trim() } else { 'Desconocido' }
+$serial = if ($bios.SerialNumber) { $bios.SerialNumber.Trim() } else { 'Desconocido' }
+$edition = if ($os.Caption) { $os.Caption.Trim() } else { 'Desconocido' }
 
-$fechaEscaneo = Get-Date$record = [pscustomobject][ordered]@{
+$fechaEscaneo = Get-Date
+$record = [pscustomobject][ordered]@{
     Hostname            = $hostname
     UsuarioLogueado     = $userName
     Marca               = $manufacturer
@@ -254,46 +282,56 @@ $fechaEscaneo = Get-Date$record = [pscustomobject][ordered]@{
     Area                = $area
 }
 
-$null = New-Item -ItemType Directory -Path $DirectorioSalida -Force$safeHostname = $hostname -replace '[^A-Za-z0-9._-]', '_'$fileName = '{0}_{1}_{2}.csv' -f $safeHostname, (Get-Date -Format 'yyyyMMdd_HHmmss_fff'), ([guid]::NewGuid().ToString('N').Substring(0, 8))$csvPath = Join-Path $DirectorioSalida$fileName
-$record \vert{} Export-Csv -LiteralPath$csvPath -NoTypeInformation -Encoding UTF8
+$null = New-Item -ItemType Directory -Path $DirectorioSalida -Force
+$safeHostname = $hostname -replace '[^A-Za-z0-9._-]', '_'
+$fileName = '{0}_{1}_{2}.csv' -f $safeHostname, (Get-Date -Format 'yyyyMMdd_HHmmss_fff'), ([guid]::NewGuid().ToString('N').Substring(0, 8))
+$csvPath = Join-Path $DirectorioSalida $fileName
+$record | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
 Write-Host "Respaldo CSV guardado en: $csvPath"
 
 $etapa = 'autenticar con Microsoft'
 try {
     $script:graphAccessToken = Get-GraphAccessToken
 
-    $etapa = 'resolver el enlace del libro de SharePoint'$shareBytes = [System.Text.Encoding]::UTF8.GetBytes($urlLibro)$shareToken = 'u!' + [Convert]::ToBase64String($shareBytes).TrimEnd('=').Replace('/', '_').Replace('+', '-')$item = Invoke-GraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/shares/$shareToken/driveItem"
+    $etapa = 'resolver el enlace del libro de SharePoint'
+    $shareBytes = [System.Text.Encoding]::UTF8.GetBytes($urlLibro)
+    $shareToken = 'u!' + [Convert]::ToBase64String($shareBytes).TrimEnd('=').Replace('/', '_').Replace('+', '-')
+    $item = Invoke-GraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/shares/$shareToken/driveItem"
     
-    if (-not $item.id -or -not$item.parentReference.driveId) { throw 'Graph no devolvió el identificador.' }
+    if (-not $item.id -or -not $item.parentReference.driveId) { throw 'Graph no devolvió el identificador.' }
 
-    $driveId = [uri]::EscapeDataString([string]$item.parentReference.driveId)$itemId = [uri]::EscapeDataString([string]$item.id)$baseUri = "https://graph.microsoft.com/v1.0/drives/$driveId/items/$itemId/workbook"
+    $driveId = [uri]::EscapeDataString([string]$item.parentReference.driveId)
+    $itemId = [uri]::EscapeDataString([string]$item.id)
+    $baseUri = "https://graph.microsoft.com/v1.0/drives/$driveId/items/$itemId/workbook"
     
     $etapa = 'consultar las tablas del libro'
     $tables = @(Get-GraphCollection -Uri "$baseUri/tables")
-    $table = @($tables | Where-Object { $_.name -eq$NombreTabla })
+    $table = @($tables | Where-Object { $_.name -eq $NombreTabla })
     if ($table.Count -ne 1) { throw "No se encontró la tabla '$NombreTabla'." }
 
-    $tableId = [uri]::EscapeDataString([string]$table[0].id)$tableUri = "$baseUri/tables/$tableId"
+    $tableId = [uri]::EscapeDataString([string]$table[0].id)
+    $tableUri = "$baseUri/tables/$tableId"
     
     $etapa = 'consultar las columnas de la tabla'
     $columns = @(Get-GraphCollection -Uri "$tableUri/columns")
-    $mapping = Get-ColumnMapping -Columns$columns
+    $mapping = Get-ColumnMapping -Columns $columns
     if (-not $mapping.IsComplete) { throw "Las columnas de Excel no coinciden." }
 
     $rowValues = @()
-    foreach ($field in$mapping.Fields) {
-        if ($field -eq 'FechaEscaneo') { $rowValues +=$fechaEscaneo.ToOADate() }
+    foreach ($field in $mapping.Fields) {
+        if ($field -eq 'FechaEscaneo') { $rowValues += $fechaEscaneo.ToOADate() }
         else { $rowValues += $record.PSObject.Properties[$field].Value }
     }
     $body = @{ values = @(,$rowValues) } | ConvertTo-Json -Depth 4 -Compress
     
-    $etapa = 'agregar la fila al libro'$added = Invoke-GraphRequest -Method POST -Uri "$tableUri/rows/add" -Body $body
+    $etapa = 'agregar la fila al libro'
+    $added = Invoke-GraphRequest -Method POST -Uri "$tableUri/rows/add" -Body $body
     if (-not $added) { throw 'Graph no confirmó la creación de la fila.' }
     Write-Host "¡ÉXITO! Equipo registrado en SharePoint: $hostname" -ForegroundColor Green
 }
 catch {
-    $detalle =$_.Exception.Message
-    Write-Host "`n[ERROR] No se pudo registrar el equipo en la etapa: '$etapa'." -ForegroundColor Red
+    $detalle = $_.Exception.Message
+    Write-Host "\n[ERROR] No se pudo registrar el equipo en la etapa: '$etapa'." -ForegroundColor Red
     Write-Host "Detalle: $detalle" -ForegroundColor Red
-    Write-Host "De todas formas, el respaldo local está a salvo en: $csvPath`n" -ForegroundColor Yellow
+    Write-Host "De todas formas, el respaldo local está a salvo en: $csvPath\n" -ForegroundColor Yellow
 }
